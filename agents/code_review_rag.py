@@ -1,12 +1,13 @@
 """
-Code Review RAG System
+JavaScript Code Review RAG System
 
 This script uses LangChain and OpenAI to create a Retrieval Augmented Generation (RAG)
-system for code review. It loads Python files from a repository, creates embeddings,
+system for JavaScript code review. It loads JavaScript files from a repository, creates embeddings,
 and uses a retrieval chain to provide code review suggestions.
 """
 
 import os
+import glob
 from git import Repo
 from dotenv import load_dotenv
 
@@ -14,9 +15,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Import LangChain components
-from langchain_community.document_loaders.generic import GenericLoader
-from langchain_community.document_loaders.parsers import LanguageParser
-from langchain_text_splitters import Language, RecursiveCharacterTextSplitter
+from langchain_community.document_loaders import TextLoader
+from langchain_text_splitters import CharacterTextSplitter
 from langchain_chroma import Chroma
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
@@ -35,29 +35,41 @@ def clone_repository(repo_url, repo_path):
 
 
 def load_code_documents(repo_path, subfolder):
-    """Load code documents from the repository"""
-    loader = GenericLoader.from_filesystem(
-        os.path.join(repo_path, subfolder),
-        glob="**/*",
-        suffixes=[".py"],
-        exclude=["**/non-utf-8-encoding.py"],
-        parser=LanguageParser(language=Language.PYTHON, parser_threshold=500)
-    )
+    """Load JavaScript code documents from the repository"""
+    documents = []
+    base_path = os.path.join(repo_path, subfolder)
+    extensions = [".js", ".jsx", ".ts", ".tsx"]
+    exclude_patterns = ["node_modules", "dist", "build"]
 
     print("Loading documents...")
-    documents = loader.load()
+    for root, dirs, files in os.walk(base_path):
+        # Skip excluded directories
+        dirs[:] = [d for d in dirs if d not in exclude_patterns]
+        
+        for file in files:
+            if any(file.endswith(ext) for ext in extensions):
+                file_path = os.path.join(root, file)
+                try:
+                    loader = TextLoader(file_path)
+                    documents.extend(loader.load())
+                    print(f"Loaded {file_path}")
+                except Exception as e:
+                    print(f"Error loading {file_path}: {e}")
+
     print(f"Loaded {len(documents)} documents.")
     return documents
 
 
 def split_documents(documents):
     """Split documents into chunks"""
-    python_splitter = RecursiveCharacterTextSplitter.from_language(
-        language=Language.PYTHON, chunk_size=2000, chunk_overlap=200
+    text_splitter = CharacterTextSplitter(
+        separator="\n",
+        chunk_size=500,
+        chunk_overlap=50
     )
 
     print("Splitting documents...")
-    texts = python_splitter.split_documents(documents)
+    texts = text_splitter.split_documents(documents)
     print(f"Created {len(texts)} text chunks.")
     return texts
 
@@ -76,13 +88,13 @@ def setup_retrieval_chain():
     """Set up the retrieval chain for code review"""
     llm = ChatOpenAI(
         model_name="gpt-3.5-turbo",
-        max_tokens=200,
+        max_tokens=400,  # Increased for more detailed responses
     )
 
     prompt = ChatPromptTemplate.from_messages([
         (
             "system",
-            "Você é um revisor de código experiente. Forneça informações detalhadas sobre a revisão do código e sugestões de melhorias baseadas no contexto fornecido abaixo: \n\n{context}",
+            "You are an experienced JavaScript/TypeScript code reviewer. Provide detailed information about the code review and suggest improvements based on JavaScript/React best practices, considering the context provided below: \n\n{context}",
         ),
         ("user", "{input}"),
     ])
@@ -94,8 +106,8 @@ def setup_retrieval_chain():
 def main():
     # Define repository path
     repo_path = "./test_repo"
-    repo_url = "https://github.com/langchain-ai/langchain"
-    subfolder = "libs/core/langchain_core/"
+    repo_url = "https://github.com/oliviasmim/typescript-react-dashboard.git"
+    subfolder = "frontend/src"
     
     # Clone repository
     clone_repository(repo_url, repo_path)
@@ -116,7 +128,7 @@ def main():
     # Example code review
     print("\nPerforming code review...")
     response = retrieval_chain.invoke({
-        "input": "Você pode revisar e sugerir melhorias para o código de RunnableBinding"
+        "input": "Create an overview of the codebase and identify any React best practices that could be improved.",
     })
     
     print("\nCode Review Result:")
